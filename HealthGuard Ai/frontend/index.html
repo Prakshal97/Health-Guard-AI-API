@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>HealthGuard AI – Test Frontend</title>
+    <style>
+      body { font-family: Arial; background: #111; color: #eee; padding: 20px; }
+      button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
+      pre { background: #000; padding: 20px; border-radius: 8px; margin-top: 20px; }
+      h1 { color: #00d9ff; }
+    </style>
+  </head>
+
+  <body>
+    <h1>HealthGuard AI – Frontend Test</h1>
+
+    <button onclick="loadData()">Load Forecast</button>
+
+    <pre id="output">Press "Load Forecast" to test API...</pre>
+
+    <script>
+      async function loadData() {
+        try {
+          const res = await fetch("http://127.0.0.1:8000/forecast/patient-inflow-with-resources?city=Mumbai&days=3");
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          
+          const data = await res.json();
+          document.getElementById("output").innerText = JSON.stringify(data, null, 2);
+        } catch (err) {
+          document.getElementById("output").innerText = "Error: " + err;
+          console.error(err);
+        }
+      }
+    </script>
+  </body>
+</html>
