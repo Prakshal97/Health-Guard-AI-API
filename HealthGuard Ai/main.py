@@ -9,11 +9,19 @@ from forecast_routes import router as forecast_router
 from aqi_routes import router as aqi_router
 from events_routes import router as events_router
 from alerts_routes import router as alerts_router
+from auth import router as auth_router
 
 app = FastAPI()
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+
+from database import Base, engine
+from models import *
+
+print("Creating all tables in MySQL...")
+Base.metadata.create_all(bind=engine)
+print("✅ Tables created successfully.")
 
 app.add_middleware(
     CORSMiddleware,
@@ -41,6 +49,7 @@ app.include_router(forecast_router)
 app.include_router(aqi_router)
 app.include_router(events_router)
 app.include_router(alerts_router)
+app.include_router(auth_router)
 
 @app.get("/")
 def home():
