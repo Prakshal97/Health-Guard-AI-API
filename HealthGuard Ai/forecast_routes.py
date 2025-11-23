@@ -1,5 +1,5 @@
 # forecast_routes.py
-from fastapi import APIRouter
+from fastapi import APIRouter,Depends
 from pydantic import BaseModel
 from typing import List, Optional
 import pandas as pd
@@ -7,6 +7,10 @@ import numpy as np
 import joblib
 from datetime import datetime, timedelta
 import os
+from sqlalchemy.orm import Session
+
+from database import get_db
+from models import Forecast,Alert
 
 router = APIRouter()
 
@@ -71,6 +75,19 @@ def generate_synthetic_forecast(start_date: datetime, days: int):
 
     return result
 
+def classify_surge(patients: int) -> str | None:
+    """
+    Very simple rule:
+    - >= 350 patients -> 'high'
+    - >= 250 patients -> 'warning'
+    - else -> None (no alert)
+    """
+    if patients >= 350:
+        return "high"
+    if patients >= 250:
+        return "warning"
+    return None
+
 # ---------------------------------------------------------------------
 # 3. RESOURCE ESTIMATION MODULE
 # ---------------------------------------------------------------------
@@ -109,7 +126,7 @@ def compute_resources(patients):
 # 4. MAIN FORECAST ROUTE
 # ---------------------------------------------------------------------
 @router.get("/forecast/patient-inflow-with-resources")
-def forecast_with_resources(city: str = "Mumbai", days: int = 7, use_model: bool = True):
+def forecast_with_resources(city: str = "Mumbai", days: int = 7, use_model: bool = True,db: Session = Depends(get_db),):
     start_date = datetime.utcnow()
     city_key = city.lower().strip()
 
@@ -157,6 +174,55 @@ def forecast_with_resources(city: str = "Mumbai", days: int = 7, use_model: bool
                 "breakdown": breakdown,
             },
         })
+
+       # ----------------------------
+    #   SAVE FORECAST + CREATE ALERTS
+    # ----------------------------
+    for r in results:
+        try:
+            patients = int(round(r["prediction"]["yhat"]))
+            date_obj = datetime.fromisoformat(r["date"])
+
+            # 1) Save forecast row
+            forecast_row = Forecast(
+                city=city,
+                date=date_obj,
+                predicted_patients=patients,
+                model_source=source,
+                resources=r["resources"],
+            )
+            db.add(forecast_row)
+
+            # 2) Decide if alert needed
+            severity = classify_surge(patients)
+            if severity:
+                # Avoid duplicate alerts for same city+date
+                existing = (
+                    db.query(Alert)
+                    .filter(Alert.city == city)
+                    .filter(Alert.title == f"Surge predicted on {r['date']}")
+                    .first()
+                )
+                if not existing:
+                    detail = (
+                        f"Predicted ER load of ~{patients} patients on {r['date']}."
+                        " Prepare staff, beds and oxygen accordingly."
+                    )
+                    new_alert = Alert(
+                        city=city,
+                        severity=severity,
+                        title=f"Surge predicted on {r['date']}",
+                        detail=detail,
+                        created_at=datetime.utcnow(),
+                        expires=date_obj,  # expires on that day
+                        sent=False,
+                    )
+                    db.add(new_alert)
+
+        except Exception as e:
+            print("Error saving forecast / alert:", e)
+
+    db.commit()
 
     return {
         "city": city,

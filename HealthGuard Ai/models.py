@@ -1,8 +1,7 @@
-# models.py
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database import Base
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Float, Boolean
 
 class User(Base):
     __tablename__ = "users"
@@ -29,3 +28,34 @@ class Hospital(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     admin = relationship("User", back_populates="hospitals")
+
+
+
+# ^ make sure JSON, Float, Boolean are imported
+
+# ... User + Hospital classes stay as they are ...
+
+
+class Forecast(Base):
+    __tablename__ = "forecasts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    city = Column(String(100), index=True)
+    date = Column(DateTime, index=True)
+    predicted_patients = Column(Float)
+    model_source = Column(String(100))      # e.g. prophet_model_mumbai, simulated
+    resources = Column(JSON)               # summary + breakdown dict
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Alert(Base):
+    __tablename__ = "alerts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    city = Column(String(100), index=True)
+    severity = Column(String(20))          # info / warning / high
+    title = Column(String(200))
+    detail = Column(String(500))
+    expires = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    sent = Column(Boolean, default=False)

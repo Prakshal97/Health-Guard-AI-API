@@ -1,17 +1,69 @@
 # alerts_routes.py
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from datetime import datetime, timedelta
+from typing import Optional, List
+
+from sqlalchemy.orm import Session
+from database import get_db
+from models import Alert
 
 router = APIRouter()
 
-# mock advisories
-_mock_alerts = [
-    {"severity": "high", "title": "Major festival in 3 days", "detail": "Expect +35% surge in trauma & respiratory cases. Staff augmentation required.", "expires": None},
-    {"severity": "warning", "title": "High humidity & stagnant water", "detail": "Vector control advised - dengue risk rising.", "expires": None},
-    {"severity": "info", "title": "AQI improving over next 48 hours", "detail": "Monitor for waterborne diseases after rains.", "expires": None}
-]
+# ---------- Pydantic Schemas ----------
+class AlertCreate(BaseModel):
+    city: str
+    severity: str           # "info", "warning", "high"
+    title: str
+    detail: str
+    expires_in_hours: Optional[int] = None  # if provided, we'll set expires
 
-@router.get("/alerts/city")
-def city_alerts(city: str = "Mumbai"):
-    # In real system filter by city and timestamp; here return mock
-    return {"city": city, "advisories": _mock_alerts}
+class AlertOut(BaseModel):
+    id: int
+    city: str
+    severity: str
+    title: str
+    detail: str
+    expires: Optional[datetime]
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+# ---------- Create Alert ----------
+@router.post("/alerts", response_model=AlertOut)
+def create_alert(alert: AlertCreate, db: Session = Depends(get_db)):
+    expires = None
+    if alert.expires_in_hours is not None:
+        expires = datetime.utcnow() + timedelta(hours=alert.expires_in_hours)
+
+    new_alert = Alert(
+        city=alert.city,
+        severity=alert.severity,
+        title=alert.title,
+        detail=alert.detail,
+        expires=expires,
+        created_at=datetime.utcnow(),
+        sent=False,
+    )
+    db.add(new_alert)
+    db.commit()
+    db.refresh(new_alert)
+    return new_alert
+
+
+# ---------- Get Active Alerts by City ----------
+@router.get("/alerts/city", response_model=List[AlertOut])
+def city_alerts(city: str = "Mumbai", db: Session = Depends(get_db)):
+    now = datetime.utcnow()
+
+    alerts = (
+        db.query(Alert)
+        .filter(Alert.city == city)
+        .filter((Alert.expires.is_(None)) | (Alert.expires > now))
+        .order_by(Alert.created_at.desc())
+        .all()
+    )
+
+    return alerts
